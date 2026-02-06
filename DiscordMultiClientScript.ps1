@@ -1,70 +1,97 @@
 ﻿<#
 .SYNOPSIS
-    Launches a new instance of Discord with a separate profile to prevent loading freezes.
+    Launches a new instance of Discord with a separate profile.
+    V2.0 - Uses .NET ProcessStartInfo for robust environment variable injection.
 
 .AUTHOR
     Succulent_Sauze
 
 .DESCRIPTION
-    Recent Discord updates prevent multiple instances from sharing the same data folder 
-    (causing infinite loading). This script:
-    1. Finds the latest Discord version.
-    2. Sets a custom User Data Directory (e.g., Discord_Alt) to isolate the new instance.
-    3. Launches Discord with the necessary environment variables.
-
-.PARAMETER ProfileName
-    Optional. The name of the profile to load. Defaults to "Alt".
-    Change this if you want a 3rd or 4th instance (e.g., -ProfileName "Alt2").
-
-.NOTES
-    This will create a new folder in %AppData%\Discord_<ProfileName> for the new instance's data.
-    You will need to log in again for this new instance, but it will remember you next time.
+    Launches Discord with a custom User Data Directory to prevent "Singleton Lock" errors
+    and infinite loading screens.
 #>
 
 param(
     [string]$ProfileName = "Alt"
 )
 
-# 1. Define the default Discord installation path
-$basePath = "$env:LOCALAPPDATA\Discord"
+# 1. Platform Detection & Path Setup
+$runningOnMac = $IsMacOS -or ($PSVersionTable.OS -match 'Darwin')
+$runningOnWin = $IsWindows -or ($env:OS -match 'Windows_NT')
 
-# Check if the directory exists
-if (-not (Test-Path $basePath)) {
-    Write-Error "Discord installation folder not found at: $basePath"
-    exit
+if ($runningOnWin) {
+    # Windows: Standard LocalAppData Loaction
+    $basePath = "$env:LOCALAPPDATA\Discord"
+
+    if (-not (Test-Path $basePath)) {
+        Write-Error "Discord installation folder not found at: $basePath"
+        exit
+    }
+
+    # Find the latest version folder (app-*)
+    $latestVersionDir = Get-ChildItem -Path $basePath -Filter "app-*" -Directory |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
+
+    if ($null -eq $latestVersionDir) {
+        Write-Error "No version folders (app-*) found in $basePath"
+        exit
+    }
+
+    $exePath = Join-Path -Path $latestVersionDir.FullName -ChildPath "Discord.exe"
+    $workingDir = $latestVersionDir.FullName
+    $customDataDir = "$env:APPDATA\Discord_$ProfileName"
 }
+elseif ($runningOnMac) {
+    # macOS: Standard Application Path
+    $basePath = "/Applications/Discord.app"
 
-# 2. Find the subfolder with the highest version number
-$latestVersionDir = Get-ChildItem -Path $basePath -Filter "app-*" -Directory | 
-                    Sort-Object Name -Descending | 
-                    Select-Object -First 1
+    if (-not (Test-Path $basePath)) {
+        Write-Error "Discord application not found at: $basePath"
+        exit
+    }
 
-if ($null -eq $latestVersionDir) {
-    Write-Error "No version folders (app-*) found in $basePath"
-    exit
-}
+    # Detailed executable path inside the .app bundle
+    $exePath = "$basePath/Contents/MacOS/Discord"
+    $workingDir = "$basePath/Contents/MacOS" # Context usually matters less on macOS but good to set
 
-# 3. Define the custom User Data Directory for this profile
-# This is crucial! It tells Discord to use a different folder for settings/cache
-# so it doesn't lock up with your main instance.
-$customDataDir = "$env:APPDATA\Discord_$ProfileName"
-
-# 4. Set the Environment Variable (Discord uses this to find the data path)
-$env:DISCORD_USER_DATA_DIR = $customDataDir
-
-# 5. Construct the full path to the executable
-$exePath = Join-Path -Path $latestVersionDir.FullName -ChildPath "Discord.exe"
-
-# 6. Launch the process
-if (Test-Path $exePath) {
-    Write-Host "Found latest Discord version: $($latestVersionDir.Name)" -ForegroundColor Cyan
-    Write-Host "Profile: $ProfileName" -ForegroundColor Yellow
-    Write-Host "Data Directory: $customDataDir" -ForegroundColor DarkGray
-    Write-Host "Launching new instance..." -ForegroundColor Green
-    
-    # We pass --multi-instance, but the magic is really in the $env:DISCORD_USER_DATA_DIR above.
-    Start-Process -FilePath $exePath -ArgumentList "--multi-instance" -WorkingDirectory $latestVersionDir.FullName
+    # macOS Application Support for data
+    $customDataDir = "$HOME/Library/Application Support/discord_$ProfileName"
 }
 else {
-    Write-Error "Discord.exe not found at expected path: $exePath"
+    Write-Error "Unsupported Operating System. This script supports Windows and macOS."
+    exit
+}
+
+if (Test-Path $exePath) {
+    Write-Host "Found Discord Executable: $exePath" -ForegroundColor Cyan
+    Write-Host "Target Profile: $ProfileName" -ForegroundColor Yellow
+    Write-Host "Data Directory: $customDataDir" -ForegroundColor Gray
+    Write-Host "Launching isolated instance..." -ForegroundColor Green
+
+    # 3. Use .NET ProcessStartInfo for environment variable injection
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $exePath
+    $startInfo.Arguments = "--multi-instance"
+    $startInfo.WorkingDirectory = $workingDir
+    $startInfo.UseShellExecute = $false # Required to modify EnvironmentVariables
+
+    # Explicitly set the environment variable for THIS process only
+    if ($startInfo.EnvironmentVariables.ContainsKey("DISCORD_USER_DATA_DIR")) {
+        $startInfo.EnvironmentVariables["DISCORD_USER_DATA_DIR"] = $customDataDir
+    }
+    else {
+        $startInfo.EnvironmentVariables.Add("DISCORD_USER_DATA_DIR", $customDataDir)
+    }
+
+    try {
+        [System.Diagnostics.Process]::Start($startInfo) | Out-Null
+        Write-Host "Success! New instance started." -ForegroundColor Green
+    }
+    catch {
+        Write-Error "Failed to start process: $_"
+    }
+}
+else {
+    Write-Error "Discord executable not found at suspected path: $exePath"
 }
