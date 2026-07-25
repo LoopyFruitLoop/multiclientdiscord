@@ -6,7 +6,7 @@ Past updates to Discord's Electron framework changed how singleton locks functio
 
 
 
-##### How to Use
+#### How to Use
 
 \- Download as a zip.
 
@@ -20,7 +20,7 @@ Past updates to Discord's Electron framework changed how singleton locks functio
 
 
 
-##### Advanced Usage (Custom Profiles)
+#### Advanced Usage (Custom Profiles)
 
 You can run as many instances as you want by specifying different profile names via the command line.
 
@@ -54,7 +54,7 @@ Open Terminal, navigate to the repository folder using cd, and execute the comma
 
 
 
-##### Manual Method (Batch/Shortcut)
+#### Manual Method (Batch/Shortcut)
 
 If you prefer not to use PowerShell, you can create a Windows Shortcut or a .bat file with the following target:
 
