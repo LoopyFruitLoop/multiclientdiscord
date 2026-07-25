@@ -1,4 +1,4 @@
-~<#
+~<# 
 .SYNOPSIS
     Launches a new instance of Discord with a separate profile to prevent loading freezes.
 
